@@ -28,9 +28,14 @@ workflows:
         script: keychain initialize
       - name: Set up code signing settings
         script: |
-          # Write the key to a file to fix Windows formatting issues
-          echo "$APP_STORE_CONNECT_PRIVATE_KEY" > /tmp/apikey.p8
+          # --- KEY REPAIR SCRIPT ---
+          # 1. Strip headers and spaces to get just the raw code
+          KEY_BODY=$(echo "$APP_STORE_CONNECT_PRIVATE_KEY" | sed 's/-----BEGIN PRIVATE KEY-----//g' | sed 's/-----END PRIVATE KEY-----//g' | tr -d ' ')
           
+          echo "-----BEGIN PRIVATE KEY-----" > /tmp/apikey.p8
+          echo "$KEY_BODY" >> /tmp/apikey.p8
+          echo "-----END PRIVATE KEY-----" >> /tmp/apikey.p8
+
           app-store-connect fetch-signing-files "$APP_ID" \
             --type IOS_APP_STORE \
             --create \

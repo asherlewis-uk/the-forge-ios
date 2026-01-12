@@ -26,18 +26,16 @@ workflows:
         script: npx cap sync ios
       - name: Initialize Keychain
         script: keychain initialize
-      - name: Decode Key (Mac Safe Mode)
+      - name: Decode Key and Fix Windows Formatting
         script: |
-          # Use -D for macOS decoding and write to a temporary file
-          echo "$IOS_AUTH_KEY" | base64 -D > /tmp/apikey.p8
+          # 1. Decode base64
+          # 2. Use 'tr' to delete Windows carriage returns (\r)
+          # 3. Save to file
+          echo "$IOS_AUTH_KEY" | base64 -D | tr -d '\r' > /tmp/apikey.p8
           
-          # Verify the file looks correct (First line should be -----BEGIN...)
-          if grep -q "BEGIN PRIVATE KEY" /tmp/apikey.p8; then
-            echo "✅ Key decoded successfully!"
-          else
-            echo "❌ Key decode failed. Trying Linux mode..."
-            echo "$IOS_AUTH_KEY" | base64 --decode > /tmp/apikey.p8
-          fi
+          # Debug: check if file exists and has content (First line only)
+          echo "Key file created at /tmp/apikey.p8"
+          head -n 1 /tmp/apikey.p8
 
       - name: Set up code signing settings
         script: |
@@ -46,7 +44,7 @@ workflows:
             --create \
             --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
             --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
-            --private-key @/tmp/apikey.p8
+            --private-key "@/tmp/apikey.p8"
       - name: Add certs to keychain
         script: keychain add-certificates
       - name: Build IPA
@@ -57,7 +55,6 @@ workflows:
           --config Release
     publishing:
       app_store_connect:
-        # We point to the file path now, as the variable contains Base64 (which Apple can't read directly)
         api_key: "@/tmp/apikey.p8"
         key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID

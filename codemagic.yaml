@@ -26,15 +26,22 @@ workflows:
         script: npx cap sync ios
       - name: Initialize Keychain
         script: keychain initialize
-      - name: Decode Key and Fix Windows Formatting
+      - name: Reconstruct Private Key
         script: |
-          # 1. Decode base64
-          # 2. Use 'tr' to delete Windows carriage returns (\r)
-          # 3. Save to file
-          echo "$IOS_AUTH_KEY" | base64 -D | tr -d '\r' > /tmp/apikey.p8
+          # 1. Decode the Base64 variable to a temporary file
+          echo "$IOS_AUTH_KEY" | base64 -D > /tmp/temp_decode.p8
           
-          # Debug: check if file exists and has content (First line only)
-          echo "Key file created at /tmp/apikey.p8"
+          # 2. Extract ONLY the raw secret key code (remove headers, footers, spaces, newlines)
+          # We use 'grep -v' to remove the BEGIN/END lines, and 'tr' to delete formatting
+          RAW_SECRET=$(cat /tmp/temp_decode.p8 | grep -v "PRIVATE KEY" | tr -d '\r\n ')
+          
+          # 3. Rebuild the file from scratch with perfect Apple formatting (64-char width)
+          echo "-----BEGIN PRIVATE KEY-----" > /tmp/apikey.p8
+          echo "$RAW_SECRET" | fold -w 64 >> /tmp/apikey.p8
+          echo "-----END PRIVATE KEY-----" >> /tmp/apikey.p8
+          
+          # 4. Verify the file looks correct in the logs (for safety)
+          echo "✅ Key Reconstructed. First line:"
           head -n 1 /tmp/apikey.p8
 
       - name: Set up code signing settings

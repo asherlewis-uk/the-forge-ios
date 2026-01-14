@@ -26,15 +26,60 @@ workflows:
         script: npx cap sync ios
       - name: Initialize Keychain
         script: keychain initialize
+        
+      # --- KEY RECONSTRUCTION (Use this to create the clean file) ---
+      - name: Reconstruct Key (Python)
+        script: |
+          python3 -c "
+          import os
+          import base64
+
+          try:
+              # 1. Get Base64 string
+              b64_input = os.environ.get('IOS_AUTH_KEY', '').strip()
+              
+              # 2. Decode & Clean
+              decoded_str = base64.b64decode(b64_input).decode('utf-8')
+              raw_body = decoded_str.replace('-----BEGIN PRIVATE KEY-----', '').replace('-----END PRIVATE KEY-----', '')
+              raw_body = ''.join(raw_body.split()) 
+
+              # 3. Reformat to 64-char lines
+              final_key = '-----BEGIN PRIVATE KEY-----\n'
+              for i in range(0, len(raw_body), 64):
+                  final_key += raw_body[i:i+64] + '\n'
+              final_key += '-----END PRIVATE KEY-----\n'
+
+              # 4. Save
+              with open('/tmp/apikey.p8', 'w') as f:
+                  f.write(final_key)
+              print('✅ Key ready.')
+          except Exception as e:
+              print(f'❌ Error: {e}')
+              exit(1)
+          "
+
+      # --- THE FIX: USE $(cat ...) TO READ THE FILE ---
       - name: Set up code signing settings
-        script: app-store-connect fetch-signing-files "$APP_ID" --type IOS_APP_STORE --create --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" --private-key "$APP_STORE_CONNECT_PRIVATE_KEY"
+        script: |
+          app-store-connect fetch-signing-files "$APP_ID" \
+            --type IOS_APP_STORE \
+            --create \
+            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+            --private-key "$(cat /tmp/apikey.p8)"
+      
       - name: Add certs to keychain
         script: keychain add-certificates
       - name: Build IPA
-        script: xcode-project build-ipa --workspace "ios/App/App.xcworkspace" --scheme "App" --config Release
+        script: >-
+          xcode-project build-ipa
+          --workspace "ios/App/App.xcworkspace"
+          --scheme "App"
+          --config Release
     publishing:
       app_store_connect:
-        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        # Use the same cat trick here for publishing
+        api_key: $(cat /tmp/apikey.p8)
         key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
         issuer_id: $APP_STORE_CONNECT_ISSUER_ID
         submit_to_testflight: true
